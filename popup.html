@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ring Daily Downloader</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Ring Downloader</h1>
+      <p>Select a single day or time window to queue downloads.</p>
+    </header>
+    <form id="range-form">
+      <label>
+        Start date
+        <input type="date" id="start-date" required />
+      </label>
+      <label>
+        Start time
+        <input type="time" id="start-time" />
+      </label>
+      <label>
+        End date
+        <input type="date" id="end-date" />
+      </label>
+      <label>
+        End time
+        <input type="time" id="end-time" />
+      </label>
+      <small>
+        Leave the end fields blank to download only the selected day. All cameras on the active Ring tab are included automatically.
+      </small>
+      <div class="controls">
+        <button type="submit" id="start">Start</button>
+        <button type="button" id="pause" disabled>Pause</button>
+        <button type="button" id="resume" disabled>Resume</button>
+        <button type="button" id="stop" disabled class="danger">Stop</button>
+      </div>
+    </form>
+    <section id="status" aria-live="polite"></section>
+    <section id="progress" aria-live="polite">
+      <div id="counts"></div>
+      <div id="camera-status"></div>
+      <pre id="log"></pre>
+    </section>
+    <script src="popup.js"></script>
+  </body>
+</html>
