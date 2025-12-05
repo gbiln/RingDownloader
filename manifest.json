@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Ring Daily Downloader",
+  "description": "Automate Ring.com downloads by date or time range with batching and renaming.",
+  "version": "1.0.0",
+  "permissions": [
+    "storage",
+    "downloads",
+    "scripting",
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://ring.com/*",
+    "https://account.ring.com/*",
+    "https://app.ring.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Ring Daily Downloader",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://ring.com/*",
+        "https://account.ring.com/*",
+        "https://app.ring.com/*"
+      ],
+      "js": ["contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
