@@ -98,56 +98,38 @@ async function startDownloadFlow(payload) {
 
   await chrome.storage.sync.set({ lastRequest: payload });
   const tab = await requireRingTab();
+  await focusRingTab(tab.id);
 
-  const eventsResponse = await chrome.tabs.sendMessage(tab.id, {
-    type: 'collect-events',
-    range,
-  });
-
-  if (eventsResponse?.requiresMfa) {
-    throw new Error('Ring is prompting for MFA; complete MFA and retry.');
-  }
-
-  const events = eventsResponse?.events || [];
-  runState.total = events.length;
-  if (!events.length) {
-    runState.status = 'idle';
-    throw new Error('No videos found for the requested time frame on this page.');
-  }
-
-  const grouped = groupByCamera(events);
   const { startLabel, endLabel } = formatDateLabel(range);
   const summary = [];
 
   try {
+    const dashboardResult = await attemptDashboardFlow(tab, range, { startLabel, endLabel }, summary, jobId);
+    if (dashboardResult) {
+      runState.status = 'idle';
+      return dashboardResult;
+    }
+
+    const eventsResponse = await chrome.tabs.sendMessage(tab.id, {
+      type: 'collect-events',
+      range,
+    });
+
+    if (eventsResponse?.requiresMfa) {
+      throw new Error('Ring is prompting for MFA; complete MFA and retry.');
+    }
+
+    const events = eventsResponse?.events || [];
+    runState.total = events.length;
+    if (!events.length) {
+      runState.status = 'idle';
+      throw new Error('No videos found for the requested time frame on this page.');
+    }
+
+    const grouped = groupByCamera(events);
+
     for (const [cameraName, cameraEvents] of Object.entries(grouped)) {
-      await ensureNotStopped(runState.jobId);
-      const batches = chunk(cameraEvents, BATCH_LIMIT);
-      const existingCount = batchTracker.get(cameraName) || 0;
-
-      for (let i = 0; i < batches.length; i += 1) {
-        const batchNumber = existingCount + i + 1;
-        const batch = batches[i];
-        await ensureNotStopped(runState.jobId);
-        await waitIfPaused(runState.jobId);
-
-        await triggerBatchDownload(tab.id, batch, {
-          cameraName,
-          startLabel,
-          endLabel,
-          batchNumber,
-        });
-        summary.push({ cameraName, batchNumber, count: batch.length });
-        runState.completed += batch.length;
-        sendProgress({
-          cameraName,
-          batchNumber,
-          batchCount: batch.length,
-          status: 'completed-batch',
-        });
-      }
-
-      batchTracker.set(cameraName, existingCount + batches.length);
+      await downloadCameraBatches(tab.id, cameraName, cameraEvents, { startLabel, endLabel }, summary, jobId);
     }
 
     runState.status = 'idle';
@@ -264,4 +246,107 @@ async function waitIfPaused(jobId) {
       }
     }, 500);
   });
+}
+
+async function attemptDashboardFlow(tab, range, labels, summary, jobId) {
+  const dashboard = await getDashboardTiles(tab.id);
+  if (!dashboard?.tiles?.length) {
+    return null;
+  }
+
+  let totalEvents = 0;
+
+  for (let i = 0; i < dashboard.tiles.length; i += 1) {
+    await ensureNotStopped(jobId);
+    await waitIfPaused(jobId);
+    await focusRingTab(tab.id);
+
+    const openResponse = await chrome.tabs.sendMessage(tab.id, {
+      type: 'open-dashboard-camera',
+      index: i,
+    });
+
+    const cameraName = openResponse?.cameraName || dashboard.tiles[i]?.name || `Camera ${i + 1}`;
+
+    const eventsResponse = await chrome.tabs.sendMessage(tab.id, {
+      type: 'collect-events',
+      range,
+    });
+
+    if (eventsResponse?.requiresMfa) {
+      throw new Error('Ring is prompting for MFA; complete MFA and retry.');
+    }
+
+    const cameraEvents = (eventsResponse?.events || []).map((event) => ({
+      ...event,
+      cameraName: event.cameraName || cameraName,
+    }));
+
+    runState.total += cameraEvents.length;
+    totalEvents += cameraEvents.length;
+
+    await downloadCameraBatches(tab.id, cameraName, cameraEvents, labels, summary, jobId);
+
+    await ensureNotStopped(jobId);
+
+    const backResponse = await chrome.tabs.sendMessage(tab.id, {
+      type: 'return-to-dashboard',
+    });
+
+    if (!backResponse?.ok) {
+      throw new Error(backResponse?.error || 'Could not return to the Ring dashboard.');
+    }
+  }
+
+  if (!totalEvents) {
+    throw new Error('No videos found for the requested time frame on the Ring dashboard.');
+  }
+
+  return { batches: summary };
+}
+
+async function getDashboardTiles(tabId) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, { type: 'list-dashboard-cameras' });
+  } catch (error) {
+    return null;
+  }
+}
+
+async function focusRingTab(tabId) {
+  await chrome.tabs.update(tabId, { active: true });
+  const tab = await chrome.tabs.get(tabId);
+  if (tab?.windowId) {
+    await chrome.windows.update(tab.windowId, { focused: true });
+  }
+}
+
+async function downloadCameraBatches(tabId, cameraName, cameraEvents, labels, summary, jobId) {
+  await ensureNotStopped(jobId);
+  const batches = chunk(cameraEvents, BATCH_LIMIT);
+  const existingCount = batchTracker.get(cameraName) || 0;
+
+  for (let i = 0; i < batches.length; i += 1) {
+    const batchNumber = existingCount + i + 1;
+    const batch = batches[i];
+    await ensureNotStopped(jobId);
+    await waitIfPaused(jobId);
+
+    await triggerBatchDownload(tabId, batch, {
+      cameraName,
+      startLabel: labels.startLabel,
+      endLabel: labels.endLabel,
+      batchNumber,
+    });
+    summary.push({ cameraName, batchNumber, count: batch.length });
+    runState.completed += batch.length;
+    sendProgress({
+      cameraName,
+      batchNumber,
+      batchCount: batch.length,
+      status: 'completed-batch',
+    });
+  }
+
+  batchTracker.set(cameraName, existingCount + batches.length);
 }
