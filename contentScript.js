@@ -22,6 +22,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'list-dashboard-cameras') {
+    sendResponse({ tiles: listDashboardCameras() });
+    return true;
+  }
+
+  if (message?.type === 'open-dashboard-camera') {
+    openDashboardCamera(message.index)
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (message?.type === 'return-to-dashboard') {
+    returnToDashboard()
+      .then((ok) => sendResponse({ ok }))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
   return false;
 });
 
@@ -510,4 +529,105 @@ function isAlreadyDownloaded(row) {
 
   const icon = row.querySelector('svg use[href*="download"], svg path[d*="download" i], [data-icon*="download" i]');
   return Boolean(icon);
+}
+
+function listDashboardCameras() {
+  return findDashboardTiles().map((tile, index) => ({
+    index,
+    name: readCameraName(tile),
+  }));
+}
+
+async function openDashboardCamera(index) {
+  const tiles = findDashboardTiles();
+  const target = tiles[index];
+
+  if (!target) {
+    throw new Error(`Could not find camera tile ${index + 1}.`);
+  }
+
+  target.scrollIntoView({ block: 'center' });
+  target.click();
+
+  const eventHistoryLink = await waitForEventHistoryLink();
+  eventHistoryLink.click();
+  await waitForTimeline();
+
+  return { cameraName: readCameraName(target) };
+}
+
+async function returnToDashboard() {
+  window.history.back();
+  await waitForDashboardTiles();
+  return true;
+}
+
+function findDashboardTiles() {
+  const selector = DASHBOARD_TILE_SELECTORS.join(', ');
+  const tiles = Array.from(document.querySelectorAll(selector));
+  return tiles.filter((tile, index) => tiles.indexOf(tile) === index);
+}
+
+function readCameraName(tile) {
+  return (
+    tile.querySelector('[data-testid="camera-name"], [data-test-id="camera-name"], .camera-name, .device-name')?.textContent?.trim() ||
+    tile.getAttribute('aria-label') ||
+    tile.textContent?.trim() ||
+    'Camera'
+  );
+}
+
+function waitForDashboardTiles(timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const tiles = findDashboardTiles();
+    if (tiles.length) {
+      resolve(tiles);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const next = findDashboardTiles();
+      if (next.length) {
+        observer.disconnect();
+        resolve(next);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    setTimeout(() => {
+      observer.disconnect();
+      reject(new Error('Timed out waiting for the Ring dashboard tiles to load.'));
+    }, timeout);
+  });
+}
+
+async function waitForEventHistoryLink(timeout = 10000) {
+  const direct = findEventHistoryLink();
+  if (direct) return direct;
+
+  return new Promise((resolve, reject) => {
+    const observer = new MutationObserver(() => {
+      const link = findEventHistoryLink();
+      if (link) {
+        observer.disconnect();
+        resolve(link);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    setTimeout(() => {
+      observer.disconnect();
+      reject(new Error('Timed out waiting for the Event History link.'));
+    }, timeout);
+  });
+}
+
+function findEventHistoryLink() {
+  const selector = EVENT_HISTORY_LINK_SELECTORS.join(', ');
+  const candidate = document.querySelector(selector);
+  if (candidate) return candidate;
+
+  return Array.from(document.querySelectorAll('a, button')).find((el) => /event history/i.test(el.textContent || ''));
 }
