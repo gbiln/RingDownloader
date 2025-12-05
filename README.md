@@ -10,11 +10,20 @@ A Chrome extension that automates bulk downloads from Ring.com by day or time ra
 - Renames ZIP files using the recorded date and batch number so you can distinguish multiple downloads per camera.
 - Remembers the last date/time range you used.
 
-## Loading the extension
+## Installing / loading the extension in Chrome
 
-1. Run `npm install` if your environment requires a bundler. The extension in this repo ships as plain JavaScript and does not need a build step.
-2. Open `chrome://extensions` in a Chromium-based browser and enable **Developer mode**.
-3. Click **Load unpacked** and choose this repository folder.
+Chrome (and other Chromium browsers) can load the source directly; no build step is required.
+
+1. **Download the code**
+   - Option A: `git clone https://github.com/…/RingDownloader.git` and open the cloned folder.
+   - Option B: Click **Code → Download ZIP** on GitHub, unzip it, and open the extracted folder.
+2. **Open the Extensions page**
+   - Visit `chrome://extensions/` in Chrome/Edge/Brave and toggle **Developer mode** on (top-right).
+3. **Load the folder**
+   - Click **Load unpacked**, then select the folder that contains `manifest.json` (the repo root).
+   - The extension should appear in your list; pin it to the toolbar if desired.
+4. **Updates**
+   - If you pull new changes, return to `chrome://extensions/` and click **Reload** on the extension card.
 
 ## Using the downloader
 
