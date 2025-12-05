@@ -1,6 +1,12 @@
 const BATCH_LIMIT = 150;
 const renameQueue = [];
 const batchTracker = new Map();
+const runState = {
+  status: 'idle',
+  jobId: 0,
+  total: 0,
+  completed: 0,
+};
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Ring Daily Downloader installed');
@@ -8,6 +14,11 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'start-download') {
+    if (runState.status === 'running' || runState.status === 'paused') {
+      sendResponse({ ok: false, error: 'A download is already in progress. Stop or resume it first.' });
+      return true;
+    }
+
     startDownloadFlow(message.payload)
       .then((summary) => sendResponse({ ok: true, summary }))
       .catch((error) => {
@@ -32,6 +43,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.runtime.sendMessage({ type: 'status-echo', text: message.text });
   }
 
+  if (message?.type === 'stop-download') {
+    runState.status = 'stopped';
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message?.type === 'pause-download') {
+    if (runState.status === 'running') {
+      runState.status = 'paused';
+      sendResponse({ ok: true });
+    } else {
+      sendResponse({ ok: false, error: 'No active download to pause.' });
+    }
+    return true;
+  }
+
+  if (message?.type === 'resume-download') {
+    if (runState.status === 'paused') {
+      runState.status = 'running';
+      sendResponse({ ok: true });
+    } else {
+      sendResponse({ ok: false, error: 'Nothing is paused.' });
+    }
+    return true;
+  }
+
+  if (message?.type === 'get-run-state') {
+    sendResponse({ state: { ...runState } });
+    return true;
+  }
+
   return false;
 });
 
@@ -42,12 +84,18 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   }
 
   const safeCamera = rename.cameraName.replace(/[^a-z0-9_-]+/gi, '_');
-  const filename = `${safeCamera}-${rename.dateLabel}-${rename.batchNumber}.zip`;
+  const filename = `${safeCamera}_${rename.startLabel}_to_${rename.endLabel}_Batch${rename.batchNumber}.zip`;
   suggest({ filename });
 });
 
 async function startDownloadFlow(payload) {
   const { range } = payload;
+  runState.jobId += 1;
+  const jobId = runState.jobId;
+  runState.status = 'running';
+  runState.total = 0;
+  runState.completed = 0;
+
   await chrome.storage.sync.set({ lastRequest: payload });
   const tab = await requireRingTab();
 
@@ -61,29 +109,54 @@ async function startDownloadFlow(payload) {
   }
 
   const events = eventsResponse?.events || [];
+  runState.total = events.length;
   if (!events.length) {
+    runState.status = 'idle';
     throw new Error('No videos found for the requested time frame on this page.');
   }
 
   const grouped = groupByCamera(events);
-  const dateLabel = formatDateLabel(range);
+  const { startLabel, endLabel } = formatDateLabel(range);
   const summary = [];
 
-  for (const [cameraName, cameraEvents] of Object.entries(grouped)) {
-    const batches = chunk(cameraEvents, BATCH_LIMIT);
-    const existingCount = batchTracker.get(cameraName) || 0;
+  try {
+    for (const [cameraName, cameraEvents] of Object.entries(grouped)) {
+      await ensureNotStopped(runState.jobId);
+      const batches = chunk(cameraEvents, BATCH_LIMIT);
+      const existingCount = batchTracker.get(cameraName) || 0;
 
-    for (let i = 0; i < batches.length; i += 1) {
-      const batchNumber = existingCount + i + 1;
-      const batch = batches[i];
-      await triggerBatchDownload(tab.id, batch, { cameraName, dateLabel, batchNumber });
-      summary.push({ cameraName, batchNumber, count: batch.length });
+      for (let i = 0; i < batches.length; i += 1) {
+        const batchNumber = existingCount + i + 1;
+        const batch = batches[i];
+        await ensureNotStopped(runState.jobId);
+        await waitIfPaused(runState.jobId);
+
+        await triggerBatchDownload(tab.id, batch, {
+          cameraName,
+          startLabel,
+          endLabel,
+          batchNumber,
+        });
+        summary.push({ cameraName, batchNumber, count: batch.length });
+        runState.completed += batch.length;
+        sendProgress({
+          cameraName,
+          batchNumber,
+          batchCount: batch.length,
+          status: 'completed-batch',
+        });
+      }
+
+      batchTracker.set(cameraName, existingCount + batches.length);
     }
 
-    batchTracker.set(cameraName, existingCount + batches.length);
+    runState.status = 'idle';
+    return { batches: summary };
+  } finally {
+    if (runState.jobId === jobId && runState.status !== 'paused') {
+      runState.status = 'idle';
+    }
   }
-
-  return { batches: summary };
 }
 
 async function requireRingTab() {
@@ -148,10 +221,47 @@ function chunk(list, size) {
 
 function formatDateLabel(range) {
   const start = range?.start ? new Date(range.start) : new Date();
-  const end = range?.end ? new Date(range.end) : null;
+  const end = range?.end ? new Date(range.end) : start;
   const format = (d) => d.toISOString().slice(0, 10);
-  if (!end || format(start) === format(end)) {
-    return format(start);
+  return { startLabel: format(start), endLabel: format(end) };
+}
+
+function sendProgress(data) {
+  chrome.runtime.sendMessage({
+    type: 'progress-update',
+    state: { ...runState },
+    ...data,
+  });
+}
+
+async function ensureNotStopped(jobId) {
+  if (runState.jobId !== jobId) return;
+  if (runState.status === 'stopped') {
+    runState.status = 'idle';
+    throw new Error('Downloads were stopped.');
   }
-  return `${format(start)}_to_${format(end)}`;
+}
+
+async function waitIfPaused(jobId) {
+  if (runState.jobId !== jobId) return;
+  if (runState.status !== 'paused') return;
+
+  await new Promise((resolve, reject) => {
+    const interval = setInterval(() => {
+      if (runState.jobId !== jobId) {
+        clearInterval(interval);
+        reject(new Error('Download session changed.'));
+        return;
+      }
+      if (runState.status === 'stopped') {
+        clearInterval(interval);
+        runState.status = 'idle';
+        reject(new Error('Downloads were stopped.'));
+      }
+      if (runState.status === 'running') {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 500);
+  });
 }

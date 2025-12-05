@@ -39,8 +39,39 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.controls .danger {
+  background: #b00020;
+}
+
 #status {
   margin-top: 10px;
   font-size: 13px;
   min-height: 20px;
+}
+
+#progress {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+#counts,
+#camera-status {
+  font-size: 13px;
+}
+
+#log {
+  background: #f2f2f2;
+  padding: 6px;
+  border-radius: 4px;
+  max-height: 120px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
 }

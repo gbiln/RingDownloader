@@ -233,6 +233,7 @@ function collectRowsInto(rows, range, target, forcedCameraName) {
   rows.forEach((row) => {
     const event = extractEvent(row);
     if (!event) return;
+    if (isAlreadyDownloaded(row)) return;
     if (forcedCameraName) {
       event.cameraName = forcedCameraName;
     }
@@ -240,4 +241,20 @@ function collectRowsInto(rows, range, target, forcedCameraName) {
       target.push(event);
     }
   });
+  target.sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
+}
+
+function isAlreadyDownloaded(row) {
+  const explicit = row.querySelector(
+    '[data-testid*="downloaded" i], [data-test-id*="downloaded" i], .downloaded, [aria-label*="downloaded" i]'
+  );
+  if (explicit) return true;
+
+  const titleIndicatesDownload = Array.from(row.querySelectorAll('title')).some((title) =>
+    /download(ed)?/i.test(title.textContent || '')
+  );
+  if (titleIndicatesDownload) return true;
+
+  const icon = row.querySelector('svg use[href*="download"], svg path[d*="download" i], [data-icon*="download" i]');
+  return Boolean(icon);
 }

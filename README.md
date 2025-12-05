@@ -1,14 +1,16 @@
 # Ring Daily Downloader
 
-A Chrome extension that automates bulk downloads from Ring.com by day or time range, respecting Ring's 150-item batch limit and renaming the resulting ZIP files using `[CameraName]-[Date]-[BatchNumber]`.
+A Chrome extension that automates bulk downloads from Ring.com by day or time range, respecting Ring's 150-item batch limit and renaming the resulting ZIP files using `{CameraName}_{StartDate}_to_{EndDate}_Batch{N}`.
 
 ## Features
 
 - Queue downloads across **all cameras** for a specific day or custom start/end time window.
 - Enforces Ring's **150 video per download** limit by chunking events into batches.
 - Detects when Ring is presenting an **MFA prompt** and waits for you to finish login.
-- Renames ZIP files using the recorded date and batch number so you can distinguish multiple downloads per camera.
+- Renames ZIP files using `{CameraName}_{StartDate}_to_{EndDate}_Batch{N}` so you can distinguish multiple downloads per camera.
 - Remembers the last date/time range you used.
+- Skips events already marked as downloaded in the Ring UI so you can safely resume runs.
+- Provides **Start / Pause / Resume / Stop** controls plus live progress per batch.
 
 ## Installing / loading the extension in Chrome
 
@@ -32,12 +34,12 @@ Chrome (and other Chromium browsers) can load the source directly; no build step
 3. Open the extension popup:
    - Pick a start date (and optional time).
    - Optionally pick an end date/time. Leave blank to download a single day.
-4. Click **Start downloads**. The extension will:
+4. Click **Start**. The extension will:
    - Cycle through the Event History camera filter so every camera listed in the dashboard is processed.
    - Collect videos in the visible history that fall within the range for each camera.
    - Group them by camera, chunk each list into batches of 150, and trigger Ring's download control per batch.
-   - Rename each ZIP as `[CameraName]-[Date]-[BatchNumber].zip` as Chrome receives it.
-5. Watch the popup status text for progress updates.
+   - Rename each ZIP as `{CameraName}_{StartDate}_to_{EndDate}_Batch{N}.zip` as Chrome receives it.
+5. Watch the popup status text for progress updates. Use **Pause** or **Stop** if you need to halt the workflow; **Resume** picks up where the current page left off.
 
 > Tip: Keep the Ring tab active while downloads are queued so the content script can interact with the page's checkboxes and download controls.
 

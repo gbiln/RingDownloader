@@ -31,9 +31,19 @@
       <small>
         Leave the end fields blank to download only the selected day. All cameras on the active Ring tab are included automatically.
       </small>
-      <button type="submit" id="start">Start downloads</button>
+      <div class="controls">
+        <button type="submit" id="start">Start</button>
+        <button type="button" id="pause" disabled>Pause</button>
+        <button type="button" id="resume" disabled>Resume</button>
+        <button type="button" id="stop" disabled class="danger">Stop</button>
+      </div>
     </form>
     <section id="status" aria-live="polite"></section>
+    <section id="progress" aria-live="polite">
+      <div id="counts"></div>
+      <div id="camera-status"></div>
+      <pre id="log"></pre>
+    </section>
     <script src="popup.js"></script>
   </body>
 </html>
