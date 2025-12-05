@@ -27,13 +27,14 @@ Chrome (and other Chromium browsers) can load the source directly; no build step
 
 ## Using the downloader
 
-1. Sign in to Ring.com in a tab and navigate to the event history/timeline that shows the videos you want.
+1. Sign in to Ring.com in a tab. From the dashboard, click each camera tile's **⋯ / Event History** entry so the **Event History** page is visible (as in the screenshots), or use the **History** tab to reach the shared videos list.
 2. If Ring prompts for MFA, complete it before starting a download. The extension will report when MFA is detected.
 3. Open the extension popup:
    - Pick a start date (and optional time).
    - Optionally pick an end date/time. Leave blank to download a single day.
 4. Click **Start downloads**. The extension will:
-   - Collect videos in the visible history that fall within the range.
+   - Cycle through the Event History camera filter so every camera listed in the dashboard is processed.
+   - Collect videos in the visible history that fall within the range for each camera.
    - Group them by camera, chunk each list into batches of 150, and trigger Ring's download control per batch.
    - Rename each ZIP as `[CameraName]-[Date]-[BatchNumber].zip` as Chrome receives it.
 5. Watch the popup status text for progress updates.

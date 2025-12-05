@@ -29,18 +29,22 @@ async function collectEvents(range) {
     return { requiresMfa: true };
   }
 
-  await waitForTimeline();
-  const rows = findEventRows();
+  const cameraFilters = findCameraFilters();
   const events = [];
 
-  rows.forEach((row) => {
-    const event = extractEvent(row);
-    if (!event) return;
-    if (isWithinRange(event.recordedAt, range)) {
-      events.push(event);
+  // If the page offers per-camera filters (as shown in the Ring dashboard flow), iterate each
+  // camera so we can reliably collect downloads per device.
+  if (cameraFilters.length) {
+    for (const filter of cameraFilters) {
+      await applyCameraFilter(filter);
+      const rows = await waitForTimeline();
+      collectRowsInto(rows, range, events, filter.name);
     }
-  });
+    return { events };
+  }
 
+  const rows = await waitForTimeline();
+  collectRowsInto(rows, range, events);
   return { events };
 }
 
@@ -80,16 +84,17 @@ function detectMfaPrompt() {
 
 function waitForTimeline(timeout = 15000) {
   return new Promise((resolve, reject) => {
-    const hasRows = () => findEventRows().length > 0;
-    if (hasRows()) {
-      resolve();
+    const rows = findEventRows();
+    if (rows.length) {
+      resolve(rows);
       return;
     }
 
     const observer = new MutationObserver(() => {
-      if (hasRows()) {
+      const next = findEventRows();
+      if (next.length) {
         observer.disconnect();
-        resolve();
+        resolve(next);
       }
     });
 
@@ -156,4 +161,83 @@ function isWithinRange(recordedAt, range) {
   if (start && ts < start) return false;
   if (end && ts > end) return false;
   return true;
+}
+
+function findCameraFilters() {
+  const filters = [];
+
+  // Direct select dropdowns (common on Ring event history)
+  document.querySelectorAll('select').forEach((select) => {
+    const shouldConsider = /camera|device/i.test(select.name || '') || /camera|device/i.test(select.id || '');
+    if (!shouldConsider && select.options.length <= 1) return;
+    Array.from(select.options).forEach((option) => {
+      const name = option.textContent?.trim();
+      if (!name || /all cameras/i.test(name)) return;
+      filters.push({ element: select, value: option.value, name });
+    });
+  });
+
+  // Button + listbox pattern (e.g., data-testid="camera-filter")
+  const listButtons = document.querySelectorAll('[data-testid*="camera" i][aria-haspopup="listbox"], [aria-label*="All Cameras" i]');
+  listButtons.forEach((button) => {
+    const listbox = button.parentElement?.querySelector('[role="listbox"], ul');
+    if (!listbox) return;
+    listbox.querySelectorAll('[role="option"], li, button').forEach((item) => {
+      const name = item.textContent?.trim();
+      if (!name || /all cameras/i.test(name)) return;
+      filters.push({ element: item, name, listTrigger: button });
+    });
+  });
+
+  return filters;
+}
+
+async function applyCameraFilter(filter) {
+  if (filter.element.tagName === 'SELECT') {
+    filter.element.value = filter.value;
+    filter.element.dispatchEvent(new Event('change', { bubbles: true }));
+    filter.element.dispatchEvent(new Event('input', { bubbles: true }));
+    await waitForRowsChange();
+    return;
+  }
+
+  if (filter.listTrigger) {
+    filter.listTrigger.click();
+  }
+
+  filter.element.click();
+  await waitForRowsChange();
+}
+
+function waitForRowsChange(timeout = 10000) {
+  const before = findEventRows().length;
+  return new Promise((resolve, reject) => {
+    const observer = new MutationObserver(() => {
+      const after = findEventRows().length;
+      if (after !== before && after > 0) {
+        observer.disconnect();
+        resolve();
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    setTimeout(() => {
+      observer.disconnect();
+      resolve();
+    }, timeout);
+  });
+}
+
+function collectRowsInto(rows, range, target, forcedCameraName) {
+  rows.forEach((row) => {
+    const event = extractEvent(row);
+    if (!event) return;
+    if (forcedCameraName) {
+      event.cameraName = forcedCameraName;
+    }
+    if (isWithinRange(event.recordedAt, range)) {
+      target.push(event);
+    }
+  });
 }
